@@ -19,7 +19,7 @@ def retrain_model():
     with open(MODEL_PATH, "wb") as f:
         pickle.dump(new_model, f)
 
-model = load_model()
+# model = load_model()
 
 @app.post("/retrain")
 def trigger_retrain(background_tasks: BackgroundTasks):
