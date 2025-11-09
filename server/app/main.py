@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from torchvision.models import efficientnet_b2, EfficientNet_B2_Weights
 import uvicorn
 import io, base64
 import numpy as np
@@ -9,7 +10,13 @@ import torch.nn as nn
 from torchvision import transforms, models
 import cv2
 import os
-base_dir = os.path.dirname(os.path.abspath(__file__))
+
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+model_path = os.path.join(base_dir, "Model", "efficientnet_finetuned_unfreeze_b2_3_class.pth")
+haar_path = os.path.join(base_dir, "Model", "haarcascade_frontalface_default.xml")
+
+print(model_path,haar_path);
+
 app = FastAPI()
 
 # Allow your frontend origin(s)
@@ -28,7 +35,7 @@ app.add_middleware(
 )
 
 # Load face detector and model
-face_classifier = cv2.CascadeClassifier(os.path.join(base_dir,"/Model/haarcascade_frontalface_default.xml"))
+face_classifier = cv2.CascadeClassifier(haar_path)
 emotion_labels = ['Angry', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -36,7 +43,8 @@ print("Using:", device)
 
 def load_efficientnet_model(model_path):
     checkpoint = torch.load(model_path, map_location=device)
-    model = models.efficientnet_b2(pretrained=False)
+    weights = EfficientNet_B2_Weights.DEFAULT
+    model = models.efficientnet_b2(weights=weights)
     in_features = model.classifier[1].in_features
     model.classifier = nn.Sequential(
         nn.Linear(in_features, 1024),
@@ -56,7 +64,7 @@ def load_efficientnet_model(model_path):
     model.eval()
     return model
 
-classifier = load_efficientnet_model(os.path.join(base_dir,"/Model/efficientnet_finetuned_unfreeze_b2_3_class.pth"))
+classifier = load_efficientnet_model(model_path)
 
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -75,6 +83,7 @@ async def predict_frame(data: dict):
         faces = face_classifier.detectMultiScale(gray)
 
         predictions = []
+        log_records = []
         for (x, y, w, h) in faces:
             roi_color = frame[y:y+h, x:x+w]
             if roi_color.size == 0:
@@ -92,7 +101,23 @@ async def predict_frame(data: dict):
                 "confidence": float(confidence),
                 "box": [int(x), int(y), int(w), int(h)]
             })
-        
+            log_records.append({
+                "emotion": emotion,
+                "confidence": conf_value,
+                "frame_width": frame.shape[1],
+                "frame_height": frame.shape[0],
+                "num_faces": len(faces)
+            })
+        # --- WhyLogs Local Profiling ---
+        if log_records:
+            df = pd.DataFrame(log_records)
+            profile = why.log(df, dataset_timestamp=datetime.now())
+
+            # Save locally for whylabs docker to consume
+            output_dir = "./whylogs_data"
+            os.makedirs(output_dir, exist_ok=True)
+            profile.writer("local").option("base_dir", output_dir).write()
+
         return {"faces": predictions}
     except Exception as e:
         return {"error": str(e)}

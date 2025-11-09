@@ -1,19 +1,11 @@
 services:
-  db:
-      image: postgres:12
-      container_name: db-dev
-      volumes:
-            - db-dev-vol:/var/lib/postgresql/data
-      environment:
-            POSTGRES_DB: db-dev
-            POSTGRES_PASSWORD: secret
-      networks:
-            - monitoring
   api:
       image: fp-app
       container_name: fp-app
       ports:
          - 8000:8000
+      volumes:
+         - ./whylogs_data:/app/whylogs_data
       networks:
          - monitoring
   cadvisor:
@@ -54,9 +46,20 @@ services:
       networks:
           - monitoring
       restart: unless-stopped
-
+  whylabs:
+    image: whylabs/whylogs:latest           # self-hosted whylogs/whylabs image
+    container_name: whylabs-local
+    volumes:
+      - ./whylogs_data:/data                # same shared folder
+    ports:
+      - "8082:8080"                         # expose if you want to view locally
+    environment:
+      - WHYLOGS_NO_WHYLABS:true
+      - WHYLOGS_OUTPUT_PATH:/data
+    networks:
+      - monitoring
+    restart: unless-stopped
 volumes:
-      db-dev-vol:
       grafana-storage:
 
 networks:

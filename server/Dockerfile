@@ -4,7 +4,7 @@ FROM pytorch/pytorch:latest AS base
 WORKDIR /app
 
 # Copy app code and models
-COPY ./Model ./app/Model
+COPY ./Model ./Model
 COPY ./app ./app
 COPY ./app/requirements.txt .
 
