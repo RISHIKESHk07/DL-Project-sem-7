@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Emotion Recognition Stream</title>
+  <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+  <style>
+    video, canvas { border: 1px solid black; }
+    #result { white-space: pre-wrap; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <h2>Emotion Recognition Stream</h2>
+  <video id="video" width="320" height="240" autoplay muted></video>
+  <canvas id="canvas" width="320" height="240"></canvas>
+  <pre id="result"></pre>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const result = document.getElementById('result');
+    let streaming = false;
+
+    video.src = "http://192.168.2.5:8080/video";
+    video.crossOrigin = "anonymous";
+    video.play();
+    // Start webcam stream
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => { video.srcObject = stream; })
+      .catch(err => console.error("Webcam access error:", err));
+
+    function drawPredictions(frame, predictions) {
+      let src = cv.imread(frame);
+      for (const face of predictions.faces || []) {
+        const [x, y, w, h] = face.box;
+        const label = `${face.emotion} (${(face.confidence * 100).toFixed(1)}%)`;
+        const color = new cv.Scalar(0, 255, 0, 255);
+        const point1 = new cv.Point(x, y);
+        const point2 = new cv.Point(x + w, y + h);
+        cv.rectangle(src, point1, point2, color, 2);
+
+        // Draw text background
+        cv.rectangle(src, new cv.Point(x, y - 20), new cv.Point(x + w, y), new cv.Scalar(0, 255, 0, 255), -1);
+        cv.putText(src, label, new cv.Point(x + 5, y - 5), cv.FONT_HERSHEY_SIMPLEX, 0.4, new cv.Scalar(0, 0, 0, 255), 1);
+      }
+      cv.imshow("canvas", src);
+      src.delete();
+    }
+
+    async function sendFrame() {
+      if (!streaming) return;
+
+      // Draw frame from video → get base64 image
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.6);  // compress for speed
+      const base64Image = dataUrl.split(',')[1];
+
+      try {
+        const res = await fetch("http://localhost:8000/predict_frame", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ frame: base64Image })
+        });
+        const json = await res.json();
+
+        result.textContent = JSON.stringify(json, null, 2) || "waiting ...";
+        
+        drawPredictions(canvas, json);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    video.addEventListener('play', () => {
+      streaming = true;
+      setInterval(sendFrame, 500); // every 500ms
+    });
+
+    video.addEventListener('pause', () => streaming = false);
+  </script>
+</body>
+</html>
+
